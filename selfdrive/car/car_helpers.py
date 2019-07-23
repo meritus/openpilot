@@ -151,6 +151,9 @@ def get_car(logcan, sendcan):
     cloudlog.warning("car doesn't match any fingerprints: %r", fingerprints)
     candidate = "mock"
 
+  # TODO(meritus): Fix id/fingerprinting, hardcode candidate to corolla tss 2.0 for now.
+  candidate = "TOYOTA COROLLA TSS2 2019"
+
   CarInterface, CarController = interfaces[candidate]
   params = CarInterface.get_params(candidate, fingerprints[0], vin)
 
