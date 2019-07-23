@@ -50,6 +50,9 @@ class CarInterface(object):
 
     ret.safetyModel = car.CarParams.SafetyModel.toyota
 
+    # TODO(meritus): Fix id/fingerprinting, hardcode candidate to corolla tss 2.0 for now.
+    candidate = CAR.COROLLA_TSS2
+
     # pedal
     ret.enableCruise = not ret.enableGasInterceptor
 
