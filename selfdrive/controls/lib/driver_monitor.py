@@ -112,6 +112,7 @@ class DriverStatus():
       self.step_change = DT_CTRL / _AWARENESS_TIME
 
   def _is_driver_distracted(self, pose, blink):
+    return False
     # TODO: natural pose calib of each driver
     pitch_error = pose.pitch - _PITCH_NATURAL_OFFSET
     yaw_error = pose.yaw - _YAW_NATURAL_OFFSET
