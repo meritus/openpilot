@@ -1,23 +1,24 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import os
 import time
 from cereal import car
-from selfdrive.can.parser import CANParser
+from opendbc.can.parser import CANParser
+from selfdrive.car.interfaces import RadarInterfaceBase
 
 def _create_nidec_can_parser():
   dbc_f = 'acura_ilx_2016_nidec.dbc'
-  radar_messages = [0x400] + range(0x430, 0x43A) + range(0x440, 0x446)
+  radar_messages = [0x400] + list(range(0x430, 0x43A)) + list(range(0x440, 0x446))
   signals = list(zip(['RADAR_STATE'] +
                 ['LONG_DIST'] * 16 + ['NEW_TRACK'] * 16 + ['LAT_DIST'] * 16 +
                 ['REL_SPEED'] * 16,
                 [0x400] + radar_messages[1:] * 4,
                 [0] + [255] * 16 + [1] * 16 + [0] * 16 + [0] * 16))
   checks = list(zip([0x445], [20]))
+  fn = os.path.splitext(dbc_f)[0].encode('utf8')
+  return CANParser(fn, signals, checks, 1)
 
-  return CANParser(os.path.splitext(dbc_f)[0], signals, checks, 1)
 
-
-class RadarInterface(object):
+class RadarInterface(RadarInterfaceBase):
   def __init__(self, CP):
     # radar
     self.pts = {}
@@ -25,8 +26,9 @@ class RadarInterface(object):
     self.radar_fault = False
     self.radar_wrong_config = False
     self.radar_off_can = CP.radarOffCan
+    self.radar_ts = CP.radarTimeStep
 
-    self.delay = 0.1  # Delay of radar
+    self.delay = int(round(0.1 / CP.radarTimeStep))   # 0.1s delay of radar
 
     # Nidec
     self.rcp = _create_nidec_can_parser()
@@ -38,7 +40,7 @@ class RadarInterface(object):
     # radard at 20Hz and return no points
     if self.radar_off_can:
       if 'NO_RADAR_SLEEP' not in os.environ:
-        time.sleep(0.05)
+        time.sleep(self.radar_ts)
       return car.RadarData.new_message()
 
     vls = self.rcp.update_strings(can_strings)
@@ -55,7 +57,7 @@ class RadarInterface(object):
   def _update(self, updated_messages):
     ret = car.RadarData.new_message()
 
-    for ii in updated_messages:
+    for ii in sorted(updated_messages):
       cpt = self.rcp.vl[ii]
       if ii == 0x400:
         # check for radar faults
@@ -85,6 +87,6 @@ class RadarInterface(object):
       errors.append("wrongConfig")
     ret.errors = errors
 
-    ret.points = self.pts.values()
+    ret.points = list(self.pts.values())
 
     return ret

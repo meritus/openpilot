@@ -1,8 +1,8 @@
-import numpy as np
 from cereal import car
+from common.numpy_fast import mean
 from common.kalman.simple_kalman import KF1D
-from selfdrive.can.can_define import CANDefine
-from selfdrive.can.parser import CANParser
+from opendbc.can.can_define import CANDefine
+from opendbc.can.parser import CANParser
 from selfdrive.config import Conversions as CV
 from selfdrive.car.toyota.values import CAR, DBC, STEER_THRESHOLD, TSS2_CAR, NO_DSU_CAR
 
@@ -15,7 +15,7 @@ def parse_gear_shifter(gear, vals):
   try:
     return val_to_capnp[vals[gear]]
   except KeyError:
-    return "unknown"
+    return GearShifter.unknown
 
 
 def get_can_parser(CP):
@@ -86,7 +86,7 @@ def get_can_parser(CP):
 
 def get_cam_can_parser(CP):
 
-  signals = []
+  signals = [("FORCE", "PRE_COLLISION", 0), ("PRECOLLISION_ACTIVE", "PRE_COLLISION", 0)]
 
   # use steering message to check if panda is connected to frc
   checks = [("STEERING_LKA", 42)]
@@ -94,7 +94,7 @@ def get_cam_can_parser(CP):
   return CANParser(DBC[CP.carFingerprint]['pt'], signals, checks, 2)
 
 
-class CarState(object):
+class CarState():
   def __init__(self, CP):
 
     self.CP = CP
@@ -118,7 +118,7 @@ class CarState(object):
                          K=[[0.12287673], [0.29666309]])
     self.v_ego = 0.0
 
-  def update(self, cp):
+  def update(self, cp, cp_cam):
     # update prevs, update must run once per loop
     self.prev_left_blinker_on = self.left_blinker_on
     self.prev_right_blinker_on = self.right_blinker_on
@@ -140,7 +140,7 @@ class CarState(object):
     self.v_wheel_fr = cp.vl["WHEEL_SPEEDS"]['WHEEL_SPEED_FR'] * CV.KPH_TO_MS
     self.v_wheel_rl = cp.vl["WHEEL_SPEEDS"]['WHEEL_SPEED_RL'] * CV.KPH_TO_MS
     self.v_wheel_rr = cp.vl["WHEEL_SPEEDS"]['WHEEL_SPEED_RR'] * CV.KPH_TO_MS
-    v_wheel = float(np.mean([self.v_wheel_fl, self.v_wheel_fr, self.v_wheel_rl, self.v_wheel_rr]))
+    v_wheel = mean([self.v_wheel_fl, self.v_wheel_fr, self.v_wheel_rl, self.v_wheel_rr])
 
     # Kalman filter
     if abs(v_wheel - self.v_ego) > 2.0:  # Prevent large accelerations when car starts at non zero speed
@@ -198,3 +198,5 @@ class CarState(object):
       self.generic_toggle = cp.vl["AUTOPARK_STATUS"]['STATE'] != 0
     else:
       self.generic_toggle = bool(cp.vl["LIGHT_STALK"]['AUTO_HIGH_BEAM'])
+
+    self.stock_aeb = bool(cp_cam.vl["PRE_COLLISION"]["PRECOLLISION_ACTIVE"] and cp_cam.vl["PRE_COLLISION"]["FORCE"] < -1e-5)

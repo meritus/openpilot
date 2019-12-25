@@ -1,16 +1,17 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from cereal import car
 from selfdrive.config import Conversions as CV
 from selfdrive.controls.lib.drive_helpers import EventTypes as ET, create_event
 from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.car.chrysler.carstate import CarState, get_can_parser, get_camera_parser
-from selfdrive.car.chrysler.values import ECU, check_ecu_msgs, CAR
-from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness
+from selfdrive.car.chrysler.values import ECU, ECU_FINGERPRINT, CAR, FINGERPRINTS
+from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, is_ecu_disconnected, gen_empty_fingerprint
+from selfdrive.car.interfaces import CarInterfaceBase
 
 GearShifter = car.CarState.GearShifter
 ButtonType = car.CarState.ButtonEvent.Type
 
-class CarInterface(object):
+class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController):
     self.CP = CP
     self.VM = VehicleModel(CP)
@@ -34,18 +35,14 @@ class CarInterface(object):
     return float(accel) / 3.0
 
   @staticmethod
-  def calc_accel_override(a_ego, a_target, v_ego, v_target):
-    return 1.0
-
-  @staticmethod
-  def get_params(candidate, fingerprint, vin="", is_panda_black=False):
+  def get_params(candidate, fingerprint=gen_empty_fingerprint(), vin="", has_relay=False):
 
     ret = car.CarParams.new_message()
 
     ret.carName = "chrysler"
     ret.carFingerprint = candidate
     ret.carVin = vin
-    ret.isPandaBlack = is_panda_black
+    ret.isPandaBlack = has_relay
 
     ret.safetyModel = car.CarParams.SafetyModel.chrysler
 
@@ -61,6 +58,7 @@ class CarInterface(object):
     ret.lateralTuning.pid.kf = 0.00006   # full torque for 10 deg at 80mph means 0.00007818594
     ret.steerActuatorDelay = 0.1
     ret.steerRateCost = 0.7
+    ret.steerLimitTimer = 0.4
 
     if candidate in (CAR.JEEP_CHEROKEE, CAR.JEEP_CHEROKEE_2019):
       ret.wheelbase = 2.91  # in meters
@@ -68,7 +66,6 @@ class CarInterface(object):
       ret.steerActuatorDelay = 0.2  # in seconds
 
     ret.centerToFront = ret.wheelbase * 0.44
-
 
     ret.minSteerSpeed = 3.8  # m/s
     ret.minEnableSpeed = -1.   # enable is done by stock ACC, so ignore this
@@ -95,11 +92,10 @@ class CarInterface(object):
     ret.brakeMaxBP = [5., 20.]
     ret.brakeMaxV = [1., 0.8]
 
-    ret.enableCamera = not check_ecu_msgs(fingerprint, ECU.CAM) or is_panda_black
+    ret.enableCamera = is_ecu_disconnected(fingerprint[0], FINGERPRINTS, ECU_FINGERPRINT, candidate, ECU.CAM) or has_relay
     print("ECU Camera Simulated: {0}".format(ret.enableCamera))
     ret.openpilotLongitudinalControl = False
 
-    ret.steerLimitAlert = True
     ret.stoppingControl = False
     ret.startAccel = 0.0
 
@@ -154,6 +150,7 @@ class CarInterface(object):
 
     ret.steeringTorque = self.CS.steer_torque_driver
     ret.steeringPressed = self.CS.steer_override
+    ret.steeringRateLimited = self.CC.steer_rate_limited if self.CC is not None else False
 
     # cruise state
     ret.cruiseState.enabled = self.CS.pcm_acc_status  # same as main_on

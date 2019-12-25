@@ -1,23 +1,24 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from cereal import car
 from selfdrive.config import Conversions as CV
 from selfdrive.controls.lib.drive_helpers import create_event, EventTypes as ET
 from selfdrive.controls.lib.vehicle_model import VehicleModel
-from selfdrive.car.gm.values import DBC, CAR, STOCK_CONTROL_MSGS, \
-                                    SUPERCRUISE_CARS, AccState
+from selfdrive.car.gm.values import DBC, CAR, ECU, ECU_FINGERPRINT, \
+                                    SUPERCRUISE_CARS, AccState, FINGERPRINTS
 from selfdrive.car.gm.carstate import CarState, CruiseButtons, get_powertrain_can_parser
-from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness
+from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, is_ecu_disconnected, gen_empty_fingerprint
+from selfdrive.car.interfaces import CarInterfaceBase
 
 ButtonType = car.CarState.ButtonEvent.Type
 
-class CanBus(object):
+class CanBus(CarInterfaceBase):
   def __init__(self):
     self.powertrain = 0
     self.obstacle = 1
     self.chassis = 2
     self.sw_gmlan = 3
 
-class CarInterface(object):
+class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController):
     self.CP = CP
 
@@ -42,27 +43,27 @@ class CarInterface(object):
     return float(accel) / 4.0
 
   @staticmethod
-  def calc_accel_override(a_ego, a_target, v_ego, v_target):
-    return 1.0
-
-  @staticmethod
-  def get_params(candidate, fingerprint, vin="", is_panda_black=False):
+  def get_params(candidate, fingerprint=gen_empty_fingerprint(), vin="", has_relay=False):
     ret = car.CarParams.new_message()
 
     ret.carName = "gm"
     ret.carFingerprint = candidate
     ret.carVin = vin
-    ret.isPandaBlack = is_panda_black
+    ret.isPandaBlack = has_relay
 
     ret.enableCruise = False
+    # GM port is considered a community feature, since it disables AEB;
+    # TODO: make a port that uses a car harness and it only intercepts the camera
+    ret.communityFeature = True
 
     # Presence of a camera on the object bus is ok.
     # Have to go to read_only if ASCM is online (ACC-enabled cars),
     # or camera is on powertrain bus (LKA cars without ACC).
-    ret.enableCamera = not any(x for x in STOCK_CONTROL_MSGS[candidate] if x in fingerprint) or is_panda_black
+    ret.enableCamera = is_ecu_disconnected(fingerprint[0], FINGERPRINTS, ECU_FINGERPRINT, candidate, ECU.CAM) or \
+                       has_relay or \
+                       candidate == CAR.CADILLAC_CT6
     ret.openpilotLongitudinalControl = ret.enableCamera
     tire_stiffness_factor = 0.444  # not optimized yet
-    ret.safetyModelPassive = car.CarParams.SafetyModel.gmPassive
 
     if candidate == CAR.VOLT:
       # supports stop and go, but initial engage must be above 18mph (which include conservatism)
@@ -160,13 +161,13 @@ class CarInterface(object):
     ret.longitudinalTuning.deadzoneBP = [0.]
     ret.longitudinalTuning.deadzoneV = [0.]
 
-    ret.steerLimitAlert = True
-
     ret.stoppingControl = True
     ret.startAccel = 0.8
 
     ret.steerActuatorDelay = 0.1  # Default delay, not measured yet
     ret.steerRateCost = 1.0
+    ret.steerLimitTimer = 0.4
+    ret.radarTimeStep = 0.0667  # GM radar runs at 15Hz instead of standard 20Hz
     ret.steerControlType = car.CarParams.SteerControlType.torque
 
     return ret
@@ -208,6 +209,7 @@ class CarInterface(object):
     # timer resets when the user uses the steering wheel.
     ret.steeringPressed = self.CS.steer_override
     ret.steeringTorque = self.CS.steer_torque_driver
+    ret.steeringRateLimited = self.CC.steer_rate_limited if self.CC is not None else False
 
     # cruise state
     ret.cruiseState.available = bool(self.CS.main_on)
