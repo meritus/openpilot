@@ -1,7 +1,8 @@
+# flake8: noqa
 import os
 os.environ['FAKEUPLOAD'] = "1"
 
-from common.apk import update_apks, start_frame, pm_apply_packages, android_packages
+from common.apk import update_apks, start_offroad, pm_apply_packages, android_packages
 from common.params import Params
 from common.testing import phone_only
 from selfdrive.manager import manager_init, manager_prepare
@@ -56,7 +57,7 @@ def with_apks():
 
       update_apks()
       pm_apply_packages('enable')
-      start_frame()
+      start_offroad()
 
       func()
 
@@ -72,26 +73,6 @@ def with_apks():
     return wrap
   return wrapper
 
-#@phone_only
-#@with_processes(['controlsd', 'radard'])
-#def test_controls():
-#  from selfdrive.test.longitudinal_maneuvers.plant import Plant
-#
-#  # start the fake car for 2 seconds
-#  plant = Plant(100)
-#  for i in range(200):
-#    if plant.rk.frame >= 20 and plant.rk.frame <= 25:
-#      cruise_buttons = CruiseButtons.RES_ACCEL
-#      # rolling forward
-#      assert plant.speed > 0
-#    else:
-#      cruise_buttons = 0
-#    plant.step(cruise_buttons = cruise_buttons)
-#  plant.close()
-#
-#  # assert that we stopped
-#  assert plant.speed == 0.0
-
 @phone_only
 @with_processes(['loggerd', 'logmessaged', 'tombstoned', 'proclogd', 'logcatd'])
 def test_logging():
@@ -99,7 +80,7 @@ def test_logging():
   time.sleep(1.0)
 
 @phone_only
-@with_processes(['camerad', 'modeld', 'monitoringd'])
+@with_processes(['camerad', 'modeld', 'dmonitoringmodeld'])
 def test_visiond():
   print("VISIOND IS SET UP")
   time.sleep(5.0)
@@ -149,11 +130,11 @@ def test_athena():
           assert False, f"Athena did not start within {timeout} seconds"
         time.sleep(0.5)
 
-  def athena_post(payload, max_retries=5):
+  def athena_post(payload, max_retries=5, wait=5):
     tries = 0
     while 1:
       try:
-        return requests.post(
+        resp = requests.post(
           "https://athena.comma.ai/" + params.get("DongleId", encoding="utf-8"),
           headers={
             "Authorization": "JWT " + os.getenv("COMMA_JWT"),
@@ -162,29 +143,26 @@ def test_athena():
           data=json.dumps(payload),
           timeout=30
         )
+        resp_json = resp.json()
+        if resp_json.get('error'):
+          raise Exception(resp_json['error'])
+        return resp_json
       except Exception as e:
-        print(e)
-        time.sleep(5.0)
+        time.sleep(wait)
         tries += 1
         if tries == max_retries:
           raise
+        else:
+          print(f'athena_post failed {e}. retrying...')
 
-  def expect_athena_registers(timeout=60):
-    now = time.time()
-    while 1:
-      resp = athena_post({
-        "method": "echo",
-        "params": ["hello"],
-        "id": 0,
-        "jsonrpc": "2.0"
-      })
-      resp_json = resp.json()
-      if resp_json.get('result') == "hello":
-        break
-      elif time.time() - now > timeout:
-        assert False, f"Athena did not become available within {timeout} seconds."
-      else:
-        time.sleep(5.0)
+  def expect_athena_registers():
+    resp = athena_post({
+      "method": "echo",
+      "params": ["hello"],
+      "id": 0,
+      "jsonrpc": "2.0"
+    }, max_retries=12, wait=5)
+    assert resp.get('result') == "hello", f'Athena failed to register ({resp})'
 
   try:
     athenad_pid = expect_athena_starts()
@@ -204,9 +182,8 @@ def test_athena():
       "id": 0,
       "jsonrpc": "2.0"
     })
-    resp_json = resp.json()
-    assert resp_json.get('result'), resp_json
-    assert 'sim_id' in resp_json['result'], resp_json['result']
+    assert resp.get('result'), resp
+    assert 'sim_id' in resp['result'], resp['result']
 
     print("ATHENA: takeSnapshot")
     resp = athena_post({
@@ -214,9 +191,8 @@ def test_athena():
       "id": 0,
       "jsonrpc": "2.0"
     })
-    resp_json = resp.json()
-    assert resp_json.get('result'), resp_json
-    assert resp_json['result']['jpegBack'], resp_json['result']
+    assert resp.get('result'), resp
+    assert resp['result']['jpegBack'], resp['result']
 
     @with_processes(["thermald"])
     def test_athena_thermal():
@@ -227,9 +203,8 @@ def test_athena():
         "id": 0,
         "jsonrpc": "2.0"
       })
-      resp_json = resp.json()
-      assert resp_json.get('result'), resp_json
-      assert resp_json['result']['thermal'], resp_json['result']
+      assert resp.get('result'), resp
+      assert resp['result']['thermal'], resp['result']
     test_athena_thermal()
   finally:
     try:

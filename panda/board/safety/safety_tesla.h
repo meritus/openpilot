@@ -34,8 +34,6 @@ float tesla_ts_angle_last = 0;
 
 int tesla_controls_allowed_last = 0;
 
-int tesla_brake_prev = 0;
-int tesla_gas_prev = 0;
 int tesla_speed = 0;
 int eac_status = 0;
 
@@ -44,7 +42,7 @@ void reset_gmlan_switch_timeout(void);
 void gmlan_switch_init(int timeout_enable);
 
 
-static void tesla_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
+static int tesla_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
   set_gmlan_digital_output(0); // #define GMLAN_HIGH 0
   reset_gmlan_switch_timeout(); //we're still in tesla safety mode, reset the timeout counter and make sure our output is enabled
 
@@ -120,6 +118,7 @@ static void tesla_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
 
     tesla_controls_allowed_last = controls_allowed;
   }
+  return 1;
 }
 
 // all commands: gas/regen, friction brake and steering

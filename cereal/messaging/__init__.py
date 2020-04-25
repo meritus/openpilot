@@ -1,6 +1,7 @@
 # must be build with scons
 from .messaging_pyx import Context, Poller, SubSocket, PubSocket  # pylint: disable=no-name-in-module, import-error
 from .messaging_pyx import MultiplePublishersError, MessagingError  # pylint: disable=no-name-in-module, import-error
+import capnp
 
 assert MultiplePublishersError
 assert MessagingError
@@ -18,10 +19,15 @@ except ImportError:
 
 context = Context()
 
-def new_message():
+def new_message(service=None, size=None):
   dat = log.Event.new_message()
   dat.logMonoTime = int(sec_since_boot() * 1e9)
   dat.valid = True
+  if service is not None:
+    if size is None:
+      dat.init(service)
+    else:
+      dat.init(service, size)
   return dat
 
 def pub_sock(endpoint):
@@ -116,6 +122,7 @@ def recv_one_retry(sock):
     if dat is not None:
       return log.Event.from_bytes(dat)
 
+# TODO: This does not belong in messaging
 def get_one_can(logcan):
   while True:
     can = recv_one_retry(logcan)
@@ -146,13 +153,12 @@ class SubMaster():
         self.sock[s] = sub_sock(s, poller=self.poller, addr=addr, conflate=True)
       self.freq[s] = service_list[s].frequency
 
-      data = new_message()
-      if s in ['can', 'sensorEvents', 'liveTracks', 'sendCan',
-               'ethernetData', 'cellInfo', 'wifiScan',
-               'trafficEvents', 'orbObservation', 'carEvents']:
-        data.init(s, 0)
-      else:
-        data.init(s)
+      try:
+        data = new_message(s)
+      except capnp.lib.capnp.KjException:
+        # lists
+        data = new_message(s, 0)
+
       self.data[s] = getattr(data, s)
       self.logMonoTime[s] = 0
       self.valid[s] = data.valid
