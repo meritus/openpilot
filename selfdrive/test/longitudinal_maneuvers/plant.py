@@ -115,7 +115,7 @@ class Plant():
       Plant.live_params = messaging.pub_sock('liveParameters')
       Plant.health = messaging.pub_sock('health')
       Plant.thermal = messaging.pub_sock('thermal')
-      Plant.driverMonitoring = messaging.pub_sock('driverMonitoring')
+      Plant.driverState = messaging.pub_sock('driverState')
       Plant.cal = messaging.pub_sock('liveCalibration')
       Plant.controls_state = messaging.sub_sock('controlsState')
       Plant.plan = messaging.sub_sock('plan')
@@ -272,6 +272,7 @@ class Plant():
            'INTERCEPTOR_GAS',
            'INTERCEPTOR_GAS2',
            'IMPERIAL_UNIT',
+           'MOTOR_TORQUE',
            ])
     vls = vls_tuple(
            self.speed_sensor(speed),
@@ -304,7 +305,8 @@ class Plant():
            0,  # Brake hold
            0,  # Interceptor feedback
            0,  # Interceptor 2 feedback
-           False
+           False,
+           0,
            )
 
     # TODO: publish each message at proper frequency
@@ -355,8 +357,7 @@ class Plant():
 
 
     # Fake sockets that controlsd subscribes to
-    live_parameters = messaging.new_message()
-    live_parameters.init('liveParameters')
+    live_parameters = messaging.new_message('liveParameters')
     live_parameters.liveParameters.valid = True
     live_parameters.liveParameters.sensorValid = True
     live_parameters.liveParameters.posenetValid = True
@@ -364,19 +365,16 @@ class Plant():
     live_parameters.liveParameters.stiffnessFactor = 1.0
     Plant.live_params.send(live_parameters.to_bytes())
 
-    driver_monitoring = messaging.new_message()
-    driver_monitoring.init('driverMonitoring')
-    driver_monitoring.driverMonitoring.faceOrientation = [0.] * 3
-    driver_monitoring.driverMonitoring.facePosition = [0.] * 2
-    Plant.driverMonitoring.send(driver_monitoring.to_bytes())
+    driver_state = messaging.new_message('driverState')
+    driver_state.driverState.faceOrientation = [0.] * 3
+    driver_state.driverState.facePosition = [0.] * 2
+    Plant.driverState.send(driver_state.to_bytes())
 
-    health = messaging.new_message()
-    health.init('health')
+    health = messaging.new_message('health')
     health.health.controlsAllowed = True
     Plant.health.send(health.to_bytes())
 
-    thermal = messaging.new_message()
-    thermal.init('thermal')
+    thermal = messaging.new_message('thermal')
     thermal.thermal.freeSpace = 1.
     thermal.thermal.batteryPercent = 100
     Plant.thermal.send(thermal.to_bytes())
@@ -384,10 +382,8 @@ class Plant():
     # ******** publish a fake model going straight and fake calibration ********
     # note that this is worst case for MPC, since model will delay long mpc by one time step
     if publish_model and self.frame % 5 == 0:
-      md = messaging.new_message()
-      cal = messaging.new_message()
-      md.init('model')
-      cal.init('liveCalibration')
+      md = messaging.new_message('model')
+      cal = messaging.new_message('liveCalibration')
       md.model.frameId = 0
       for x in [md.model.path, md.model.leftLane, md.model.rightLane]:
         x.points = [0.0]*50
